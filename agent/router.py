@@ -1,0 +1,110 @@
+"""
+router.py — dispatch an email attachment to the correct parser based on MIME type / extension.
+Returns a list of canonical expense dicts (not yet stored).
+"""
+from __future__ import annotations
+
+import logging
+import os
+from typing import Callable
+
+log = logging.getLogger(__name__)
+
+# Lazy imports — only load heavy libs when needed
+def _parse_csv(data: bytes, source_email_id: str, filename: str) -> list[dict]:
+    from parsers import parse_csv
+    return parse_csv(data, source_email_id=source_email_id, filename=filename)
+
+
+def _parse_text_pdf(data: bytes, source_email_id: str, filename: str) -> list[dict]:
+    from parsers import parse_text_pdf
+    return parse_text_pdf(data, source_email_id=source_email_id, filename=filename)
+
+
+def _parse_image(data: bytes, source_email_id: str, filename: str) -> list[dict]:
+    from watsonx_client import parse_image_receipt
+    return parse_image_receipt(data, source_email_id=source_email_id, filename=filename)
+
+
+def _parse_image_pdf(data: bytes, source_email_id: str, filename: str) -> list[dict]:
+    """Scanned / image-based PDF: convert first page to image then OCR."""
+    from watsonx_client import parse_image_receipt
+    image_bytes = _pdf_to_image(data)
+    return parse_image_receipt(image_bytes, source_email_id=source_email_id, filename=filename)
+
+
+def _pdf_to_image(data: bytes) -> bytes:
+    """Rasterise the first page of a PDF to PNG bytes using pdf2image."""
+    from pdf2image import convert_from_bytes
+    pages = convert_from_bytes(data, first_page=1, last_page=1, dpi=200)
+    import io
+    buf = io.BytesIO()
+    pages[0].save(buf, format="PNG")
+    return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Routing table
+# ---------------------------------------------------------------------------
+
+_EXT_MAP: dict[str, Callable] = {
+    ".csv":  _parse_csv,
+    ".png":  _parse_image,
+    ".jpg":  _parse_image,
+    ".jpeg": _parse_image,
+    ".gif":  _parse_image,
+    ".webp": _parse_image,
+    ".tiff": _parse_image,
+    ".tif":  _parse_image,
+    ".pdf":  None,  # handled separately — text vs image PDF
+}
+
+
+def route(
+    *,
+    data: bytes,
+    filename: str,
+    mime_type: str,
+    source_email_id: str,
+) -> list[dict]:
+    """
+    Dispatch to the right parser. Returns a (possibly empty) list of expense dicts.
+    """
+    ext = os.path.splitext(filename.lower())[1]
+
+    # CSV
+    if ext == ".csv" or mime_type in ("text/csv", "application/csv"):
+        log.info("Routing %s → CSV parser", filename)
+        return _parse_csv(data, source_email_id, filename)
+
+    # Image
+    if ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".tiff", ".tif") \
+            or mime_type.startswith("image/"):
+        log.info("Routing %s → image OCR (Llama vision)", filename)
+        return _parse_image(data, source_email_id, filename)
+
+    # PDF — probe for extractable text first
+    if ext == ".pdf" or mime_type == "application/pdf":
+        if _has_text_layer(data):
+            log.info("Routing %s → text-PDF parser (Granite)", filename)
+            return _parse_text_pdf(data, source_email_id, filename)
+        else:
+            log.info("Routing %s → image-PDF OCR (Llama vision)", filename)
+            return _parse_image_pdf(data, source_email_id, filename)
+
+    log.warning("Unsupported attachment type: %s (%s) — skipping", filename, mime_type)
+    return []
+
+
+def _has_text_layer(pdf_bytes: bytes) -> bool:
+    """Return True if pdfplumber can extract at least 20 chars from the first page."""
+    try:
+        import io
+        import pdfplumber
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            if not pdf.pages:
+                return False
+            text = pdf.pages[0].extract_text() or ""
+            return len(text.strip()) >= 20
+    except Exception:
+        return False
