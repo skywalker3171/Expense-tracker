@@ -11,8 +11,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import time
+
+# Load secrets.env from the repo root (one level up from agent/) if present.
+# In Code Engine the vars are injected directly; this is a no-op there.
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "secrets.env"))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -84,7 +90,7 @@ def _process_message(msg_id: str) -> None:
 def _handle_attachment(att: dict, msg_id: str) -> None:
     filename    = att["filename"]
     mime_type   = att["mime_type"]
-    data        = gmail_client.get_attachment(msg_id, att["attachment_id"])
+    data        = gmail_client.get_attachment(msg_id, att["attachment_id"], att["filename"])
 
     # 1. Upload raw file to COS
     store.upload_attachment(email_id=msg_id, filename=filename, data=data)
@@ -111,7 +117,7 @@ def _handle_chart_request(msg_id: str, sender: str, subject: str, thread_id: str
     png_bytes, html_body = chart.build_chart_email(expenses)
 
     gmail_client.send_reply(
-        to=subject,
+        to=_extract_email(sender),
         subject=f"Re: {subject}",
         html_body=html_body,
         thread_id=thread_id,
@@ -127,6 +133,12 @@ def _handle_chart_request(msg_id: str, sender: str, subject: str, thread_id: str
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _extract_email(addr: str) -> str:
+    import re as _re
+    m = _re.search(r"<([^>]+)>", addr or "")
+    return m.group(1) if m else (addr or "").strip()
+
 
 def _get_header(message: dict, name: str) -> str:
     headers = message.get("payload", {}).get("headers", [])

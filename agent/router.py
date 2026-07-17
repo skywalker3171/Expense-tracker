@@ -34,12 +34,34 @@ def _parse_image_pdf(data: bytes, source_email_id: str, filename: str) -> list[d
 
 
 def _pdf_to_image(data: bytes) -> bytes:
-    """Rasterise the first page of a PDF to PNG bytes using pdf2image."""
-    from pdf2image import convert_from_bytes
-    pages = convert_from_bytes(data, first_page=1, last_page=1, dpi=200)
+    """
+    Rasterise the first page of a scanned PDF to PNG bytes.
+    Uses pypdf (pure-Python) + Pillow — no Poppler binary needed.
+    Falls back to sending the raw PDF bytes to the vision model if
+    no embedded images can be extracted (very rare edge case).
+    """
     import io
+    from pypdf import PdfReader
+    from PIL import Image
+
+    reader = PdfReader(io.BytesIO(data))
+    if not reader.pages:
+        return data  # let the vision model handle it as-is
+
+    # Extract the first image embedded in page 0
+    page = reader.pages[0]
+    images = list(page.images)
+    if images:
+        # Use the largest image on the first page
+        img_obj = max(images, key=lambda x: len(x.data))
+        img = Image.open(io.BytesIO(img_obj.data)).convert("RGB")
+    else:
+        # No embedded images — PDF may be vector; render via page size + blank
+        # as a last resort: pass raw bytes straight to the vision model
+        return data
+
     buf = io.BytesIO()
-    pages[0].save(buf, format="PNG")
+    img.save(buf, format="PNG")
     return buf.getvalue()
 
 

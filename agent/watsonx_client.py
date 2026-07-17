@@ -69,7 +69,7 @@ def _headers() -> dict:
 
 def _chat(model_id: str, messages: list[dict], max_tokens: int = 1024) -> str:
     """Call ml/v1/text/chat and return the assistant text content."""
-    url = f"{_WML_BASE}/ml/v1/text/chat"
+    url = f"{_WML_BASE}/ml/v1/text/chat?version=2024-05-01"
     body = {
         "model_id":   model_id,
         "project_id": config.WATSONX_PROJECT_ID,
