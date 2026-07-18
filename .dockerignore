@@ -1,0 +1,13 @@
+.git
+.venv
+**/__pycache__/
+**/*.pyc
+web/frontend/node_modules
+web/frontend/dist
+Infra/secrets.env
+Infra/*.env
+**/*.env
+agent/expense-chart.png
+agent/expense-report.html
+*.md
+.vscode

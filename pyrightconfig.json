@@ -1,0 +1,19 @@
+{
+  "pythonVersion": "3.13",
+  "extraPaths": [
+    "agent",
+    "web/backend"
+  ],
+  "executionEnvironments": [
+    {
+      "root": "web/backend",
+      "extraPaths": [
+        "agent"
+      ]
+    },
+    {
+      "root": "agent"
+    }
+  ],
+  "reportMissingImports": "warning"
+}

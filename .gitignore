@@ -12,9 +12,17 @@ __azurite_db*__.json
 # Added folders and file patterns
 workflow-designtime/
 .vscode/
-__pycache__/
+*__pycache__/
 *.code-workspace
 credentials.json
 expense-agent-apikey.json
 refresh.token
 secrets.env
+
+# Web frontend build artifacts
+node_modules/
+web/frontend/dist/
+
+# Python virtual environment
+.venv/
+venv/
