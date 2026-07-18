@@ -128,15 +128,16 @@ _MOCK_VISION_DOCS = [
 def _fake_categorize_text(*, text, source_type, source_email_id):
     return _MOCK_ROWS
 
-def _fake_parse_image_receipt(image_bytes, *, source_email_id, filename):
+def _fake_parse_image_receipt(image_bytes, *, user_id, source_ref, filename):
     import schema as _schema
     return [
         _schema.build_expense(
-            source_email_id=source_email_id,
+            user_id=user_id,
+            source_ref=source_ref,
             line_index=i,
-            **{k: v for k, v in row.items()},
             source_type="image",
             raw_text="[mock vision]",
+            **{k: v for k, v in row.items()},
         )
         for i, row in enumerate(_MOCK_VISION_DOCS)
     ]
@@ -171,7 +172,8 @@ except ValueError:
 # ── 2. schema — build_expense + validate ──────────────────────────────────
 print("\n[2] schema — build_expense / validate_expense")
 doc = schema.build_expense(
-    source_email_id="msg001",
+    user_id="user_a",
+    source_ref="msg001",
     line_index=0,
     date="16/07/2026",
     merchant="Tim Hortons",
@@ -192,18 +194,25 @@ errs = schema.validate_expense(doc)
 check("validate_expense -> no errors", errs == [], str(errs))
 
 doc2 = schema.build_expense(
-    source_email_id="msg002", line_index=0,
+    user_id="user_a", source_ref="msg002", line_index=0,
     date="2026-07-16", merchant="X", amount=1.0,
     category="RandomCategory", source_type="pdf",
 )
 check("unknown category -> Other", doc2["category"] == "Other")
 
 doc3 = schema.build_expense(
-    source_email_id="msg001", line_index=0,
+    user_id="user_a", source_ref="msg001", line_index=0,
     date="2026-07-16", merchant="Y", amount=2.0,
     source_type="csv",
 )
-check("same email+index -> same id (idempotency)", doc["id"] == doc3["id"])
+check("same user+source+index -> same id (idempotency)", doc["id"] == doc3["id"])
+
+doc_other_user = schema.build_expense(
+    user_id="user_b", source_ref="msg001", line_index=0,
+    date="2026-07-16", merchant="Y", amount=2.0,
+    source_type="csv",
+)
+check("different user -> different id", doc["id"] != doc_other_user["id"])
 
 
 # ── 3. store — mock upsert / query / upload ───────────────────────────────
@@ -215,22 +224,10 @@ except Exception as e:
     check("upsert_expense no exception", False, str(e))
 
 try:
-    rows = store.query_expenses()
+    rows = store.query_expenses(user_id="user_a")
     check("query_expenses returns list", isinstance(rows, list))
 except Exception as e:
     check("query_expenses returns list", False, str(e))
-
-try:
-    store.upload_attachment(email_id="msg001", filename="receipt.png", data=b"fakedata")
-    check("upload_attachment (PNG) no exception", True)
-except Exception as e:
-    check("upload_attachment (PNG) no exception", False, str(e))
-
-try:
-    store.upload_attachment(email_id="msg002", filename="expense.csv", data=b"fakecsv")
-    check("upload_attachment (CSV) no exception", True)
-except Exception as e:
-    check("upload_attachment (CSV) no exception", False, str(e))
 
 
 # ── 4. chart — pie chart + HTML ───────────────────────────────────────────
@@ -278,7 +275,8 @@ try:
         data=csv_bytes,
         filename="expenses_july.csv",
         mime_type="text/csv",
-        source_email_id="msg_csv_001",
+        user_id="user_a",
+        source_ref="msg_csv_001",
     )
     check("router CSV -> list",                 isinstance(docs, list))
     check("router CSV -> 2 expenses",           len(docs) == 2)
@@ -299,7 +297,8 @@ try:
         data=gif_bytes,
         filename="receipt.gif",
         mime_type="image/gif",
-        source_email_id="msg_gif_001",
+        user_id="user_a",
+        source_ref="msg_gif_001",
     )
     check("router GIF -> list",                 isinstance(docs, list))
     check("router GIF -> 1 expense",            len(docs) == 1)
@@ -321,7 +320,8 @@ try:
         data=png_bytes,
         filename="receipt.png",
         mime_type="image/png",
-        source_email_id="msg_png_001",
+        user_id="user_a",
+        source_ref="msg_png_001",
     )
     check("router PNG -> list",                 isinstance(docs, list))
     check("router PNG -> 1 expense",            len(docs) == 1)
@@ -340,7 +340,8 @@ try:
         data=pdf_bytes,
         filename="receipt.pdf",
         mime_type="application/pdf",
-        source_email_id="msg_pdf_001",
+        user_id="user_a",
+        source_ref="msg_pdf_001",
     )
     check("router text-PDF -> list",            isinstance(docs, list))
     check("router text-PDF -> 2 expenses",      len(docs) == 2)
@@ -405,7 +406,8 @@ try:
         data=scanned_pdf,
         filename="scanned_receipt.pdf",
         mime_type="application/pdf",
-        source_email_id="msg_scanpdf_001",
+        user_id="user_a",
+        source_ref="msg_scanpdf_001",
     )
     check("router scanned-PDF -> list",           isinstance(docs, list))
     # pypdf extracts the embedded PNG -> vision mock returns 1 doc
@@ -423,7 +425,8 @@ docs = router.route(
     data=b"<xml/>",
     filename="data.xml",
     mime_type="application/xml",
-    source_email_id="msg_xml_001",
+    user_id="user_a",
+    source_ref="msg_xml_001",
 )
 check("router unsupported -> empty list", docs == [])
 

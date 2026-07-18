@@ -11,26 +11,26 @@ from typing import Callable
 log = logging.getLogger(__name__)
 
 # Lazy imports — only load heavy libs when needed
-def _parse_csv(data: bytes, source_email_id: str, filename: str) -> list[dict]:
+def _parse_csv(data: bytes, user_id: str, source_ref: str, filename: str) -> list[dict]:
     from parsers import parse_csv
-    return parse_csv(data, source_email_id=source_email_id, filename=filename)
+    return parse_csv(data, user_id=user_id, source_ref=source_ref, filename=filename)
 
 
-def _parse_text_pdf(data: bytes, source_email_id: str, filename: str) -> list[dict]:
+def _parse_text_pdf(data: bytes, user_id: str, source_ref: str, filename: str) -> list[dict]:
     from parsers import parse_text_pdf
-    return parse_text_pdf(data, source_email_id=source_email_id, filename=filename)
+    return parse_text_pdf(data, user_id=user_id, source_ref=source_ref, filename=filename)
 
 
-def _parse_image(data: bytes, source_email_id: str, filename: str) -> list[dict]:
+def _parse_image(data: bytes, user_id: str, source_ref: str, filename: str) -> list[dict]:
     from watsonx_client import parse_image_receipt
-    return parse_image_receipt(data, source_email_id=source_email_id, filename=filename)
+    return parse_image_receipt(data, user_id=user_id, source_ref=source_ref, filename=filename)
 
 
-def _parse_image_pdf(data: bytes, source_email_id: str, filename: str) -> list[dict]:
+def _parse_image_pdf(data: bytes, user_id: str, source_ref: str, filename: str) -> list[dict]:
     """Scanned / image-based PDF: convert first page to image then OCR."""
     from watsonx_client import parse_image_receipt
     image_bytes = _pdf_to_image(data)
-    return parse_image_receipt(image_bytes, source_email_id=source_email_id, filename=filename)
+    return parse_image_receipt(image_bytes, user_id=user_id, source_ref=source_ref, filename=filename)
 
 
 def _pdf_to_image(data: bytes) -> bytes:
@@ -69,7 +69,7 @@ def _pdf_to_image(data: bytes) -> bytes:
 # Routing table
 # ---------------------------------------------------------------------------
 
-_EXT_MAP: dict[str, Callable] = {
+_EXT_MAP: dict[str, Callable | None] = {
     ".csv":  _parse_csv,
     ".png":  _parse_image,
     ".jpg":  _parse_image,
@@ -87,7 +87,8 @@ def route(
     data: bytes,
     filename: str,
     mime_type: str,
-    source_email_id: str,
+    user_id: str,
+    source_ref: str,
 ) -> list[dict]:
     """
     Dispatch to the right parser. Returns a (possibly empty) list of expense dicts.
@@ -96,25 +97,22 @@ def route(
 
     # CSV
     if ext == ".csv" or mime_type in ("text/csv", "application/csv"):
-        log.info("Routing %s → CSV parser", filename)
-        return _parse_csv(data, source_email_id, filename)
+        log.info("Routing %s -> CSV parser", filename)
+        return _parse_csv(data, user_id, source_ref, filename)
 
-    # Image
     if ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".tiff", ".tif") \
             or mime_type.startswith("image/"):
-        log.info("Routing %s → image OCR (Llama vision)", filename)
-        return _parse_image(data, source_email_id, filename)
+        log.info("Routing %s -> image OCR (Llama vision)", filename)
+        return _parse_image(data, user_id, source_ref, filename)
 
-    # PDF — probe for extractable text first
     if ext == ".pdf" or mime_type == "application/pdf":
         if _has_text_layer(data):
-            log.info("Routing %s → text-PDF parser (Granite)", filename)
-            return _parse_text_pdf(data, source_email_id, filename)
-        else:
-            log.info("Routing %s → image-PDF OCR (Llama vision)", filename)
-            return _parse_image_pdf(data, source_email_id, filename)
+            log.info("Routing %s -> text-PDF parser (Granite)", filename)
+            return _parse_text_pdf(data, user_id, source_ref, filename)
+        log.info("Routing %s -> image-PDF OCR (Llama vision)", filename)
+        return _parse_image_pdf(data, user_id, source_ref, filename)
 
-    log.warning("Unsupported attachment type: %s (%s) — skipping", filename, mime_type)
+    log.warning("Unsupported attachment type: %s (%s) -- skipping", filename, mime_type)
     return []
 
 

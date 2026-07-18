@@ -29,9 +29,10 @@ logging.basicConfig(
 log = logging.getLogger("main")
 
 import gmail_client
-import router
+import pipeline
 import store
 import chart
+import config
 
 
 # ---------------------------------------------------------------------------
@@ -88,30 +89,22 @@ def _process_message(msg_id: str) -> None:
 
 
 def _handle_attachment(att: dict, msg_id: str) -> None:
-    filename    = att["filename"]
-    mime_type   = att["mime_type"]
-    data        = gmail_client.get_attachment(msg_id, att["attachment_id"], att["filename"])
+    filename  = att["filename"]
+    mime_type = att["mime_type"]
+    data      = gmail_client.get_attachment(msg_id, att["attachment_id"], att["filename"])
 
-    # 1. Upload raw file to COS
-    store.upload_attachment(email_id=msg_id, filename=filename, data=data)
-
-    # 2. Route to correct parser → list of expense dicts
-    expenses = router.route(
-        data=data,
+    expenses = pipeline.process_file(
+        user_id=config.GMAIL_USER_ID,
+        source_ref=msg_id,
         filename=filename,
         mime_type=mime_type,
-        source_email_id=msg_id,
+        data=data,
     )
-
-    # 3. Store each expense in Cloudant
-    for doc in expenses:
-        store.upsert_expense(doc)
-
-    log.info("Attachment %s → %d expenses stored", filename, len(expenses))
+    log.info("Attachment %s -> %d expenses stored", filename, len(expenses))
 
 
 def _handle_chart_request(msg_id: str, sender: str, subject: str, thread_id: str | None) -> None:
-    expenses = store.query_expenses()
+    expenses = store.query_expenses(user_id=config.GMAIL_USER_ID)
     log.info("Chart request from %s — %d expenses in DB", sender, len(expenses))
 
     png_bytes, html_body = chart.build_chart_email(expenses)

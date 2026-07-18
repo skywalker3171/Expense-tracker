@@ -38,6 +38,16 @@ CLOUDANT_URL    = _require("CLOUDANT_URL")
 CLOUDANT_APIKEY = _require("CLOUDANT_APIKEY")
 CLOUDANT_DB     = os.environ.get("CLOUDANT_DB", "expenses")
 
+# Identity of the connected Gmail mailbox owner. Expenses ingested via the
+# Gmail poller are attributed to this user_id. The web app supplies its own
+# per-request user_id instead.
+GMAIL_USER_ID   = os.environ.get("GMAIL_USER_ID", "gmail-mailbox-owner")
+
+# Web / auth config (used by web/backend; safe defaults for local dev)
+JWT_SECRET      = os.environ.get("JWT_SECRET", "dev-insecure-change-me")
+MAX_UPLOAD_MB   = int(os.environ.get("MAX_UPLOAD_MB", "10"))
+ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "*")
+
 # Expense categories (fixed list — models must map to one of these)
 CATEGORIES = [
     "Groceries", "Dining", "Transport", "Utilities",

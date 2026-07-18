@@ -15,15 +15,20 @@ from config import CATEGORIES
 # Canonical shape
 # ---------------------------------------------------------------------------
 EXPENSE_KEYS = (
-    "id", "date", "merchant", "amount", "currency",
-    "category", "source_type", "source_email_id",
+    "id", "type", "user_id", "date", "merchant", "amount", "currency",
+    "category", "source_type", "source_ref", "source_email_id",
     "raw_text", "created_at",
 )
 
 
-def make_id(source_email_id: str, line_index: int) -> str:
-    """Deterministic doc id: sha256(email_id + line_index)."""
-    raw = f"{source_email_id}:{line_index}"
+def make_id(user_id: str, source_ref: str, line_index: int) -> str:
+    """Deterministic doc id: sha256(user_id + source_ref + line_index).
+
+    Includes user_id so the same source file uploaded by two different users
+    produces distinct document ids (no cross-user collisions), while re-processing
+    the same file for the same user stays idempotent.
+    """
+    raw = f"{user_id}:{source_ref}:{line_index}"
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
@@ -34,7 +39,6 @@ def coerce_date(value: str) -> str:
             return datetime.strptime(value.strip(), fmt).strftime("%Y-%m-%d")
         except ValueError:
             continue
-    # last-ditch: keep whatever the model returned
     return value.strip()
 
 
@@ -49,20 +53,30 @@ def coerce_amount(value) -> float:
         return 0.0
 
 
+def _current_categories() -> list:
+    """Editable global categories if available, else the config defaults."""
+    try:
+        import store
+        return store.get_categories()
+    except Exception:
+        return list(CATEGORIES)
+
+
 def coerce_category(value: str) -> str:
-    """Return value if it's in the fixed list, else 'Other'."""
-    if value in CATEGORIES:
+    """Return value if it matches an allowed category (case-insensitive), else 'Other'."""
+    cats = _current_categories()
+    if value in cats:
         return value
-    # case-insensitive fallback
     title = value.strip().title()
-    if title in CATEGORIES:
+    if title in cats:
         return title
     return "Other"
 
 
 def build_expense(
     *,
-    source_email_id: str,
+    user_id: str,
+    source_ref: str,
     line_index: int,
     date: str,
     merchant: str,
@@ -70,21 +84,26 @@ def build_expense(
     currency: str = "CAD",
     category: str = "Other",
     source_type: str,          # "pdf" | "image" | "csv"
+    flow: str = "withdrawal",  # "withdrawal" (expense) | "deposit"
     raw_text: str = "",
     created_at: Optional[str] = None,
 ) -> dict:
     """Construct and validate a canonical expense document."""
     return {
-        "id":             make_id(source_email_id, line_index),
-        "date":           coerce_date(date),
-        "merchant":       merchant.strip(),
-        "amount":         coerce_amount(amount),
-        "currency":       currency.upper() if currency else "CAD",
-        "category":       coerce_category(category),
-        "source_type":    source_type,
-        "source_email_id": source_email_id,
-        "raw_text":       raw_text,
-        "created_at":     created_at or datetime.now(timezone.utc).isoformat(),
+        "id":              make_id(user_id, source_ref, line_index),
+        "type":            "expense",
+        "user_id":         user_id,
+        "date":            coerce_date(date),
+        "merchant":        merchant.strip(),
+        "amount":          coerce_amount(amount),
+        "currency":        currency.upper() if currency else "CAD",
+        "category":        coerce_category(category),
+        "source_type":     source_type,
+        "flow":            "deposit" if str(flow).strip().lower() == "deposit" else "withdrawal",
+        "source_ref":      source_ref,
+        "source_email_id": source_ref,  # backward-compat alias
+        "raw_text":        raw_text,
+        "created_at":      created_at or datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -94,6 +113,8 @@ def validate_expense(doc: dict) -> list[str]:
     for key in EXPENSE_KEYS:
         if key not in doc:
             errors.append(f"Missing field: {key}")
+    if not doc.get("user_id"):
+        errors.append("user_id must be a non-empty string")
     if doc.get("amount", -1) < 0:
         errors.append("amount must be >= 0")
     if doc.get("source_type") not in ("pdf", "image", "csv"):

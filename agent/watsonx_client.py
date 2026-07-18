@@ -19,6 +19,15 @@ from schema import build_expense, coerce_category, coerce_amount, coerce_date
 
 log = logging.getLogger(__name__)
 
+
+def _cats_str() -> str:
+    """Comma-joined current category list (editable global), with fallback."""
+    try:
+        import store
+        return ", ".join(store.get_categories())
+    except Exception:
+        return ", ".join(config.CATEGORIES)
+
 _IAM_TOKEN_URL = "https://iam.cloud.ibm.com/identity/token"
 _WML_BASE      = config.WATSONX_URL
 
@@ -108,6 +117,17 @@ def _extract_json(text: str) -> Any:
                 return json.loads(match.group())
             except json.JSONDecodeError:
                 continue
+    # Salvage: the response is likely a JSON array truncated by max_new_tokens
+    # (missing its closing "]"). Recover every complete top-level {...} object.
+    salvaged = []
+    for obj in re.findall(r"\{[^{}]*\}", stripped, re.DOTALL):
+        try:
+            salvaged.append(json.loads(obj))
+        except json.JSONDecodeError:
+            continue
+    if salvaged:
+        log.warning("Recovered %d objects from truncated LLM JSON", len(salvaged))
+        return salvaged
     log.warning("Could not extract JSON from LLM response: %s", stripped[:300])
     return []
 
@@ -121,7 +141,7 @@ _VISION_SYSTEM = (
     "Extract every expense line from the receipt image and return ONLY a JSON array. "
     "Each element must have exactly these keys: "
     "date (YYYY-MM-DD), merchant (string), amount (number), currency (3-letter ISO), "
-    f"category (one of: {', '.join(config.CATEGORIES)}). "
+    "category (one of: {cats}). "
     "If a field is not visible, use sensible defaults: date=today, currency=CAD, category=Other. "
     "Return [] if no expense is found. No markdown, no explanation."
 )
@@ -130,7 +150,8 @@ _VISION_SYSTEM = (
 def parse_image_receipt(
     image_bytes: bytes,
     *,
-    source_email_id: str,
+    user_id: str,
+    source_ref: str,
     filename: str,
 ) -> list[dict]:
     """
@@ -144,7 +165,7 @@ def parse_image_receipt(
             "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/png")
 
     messages = [
-        {"role": "system", "content": _VISION_SYSTEM},
+        {"role": "system", "content": _VISION_SYSTEM.format(cats=_cats_str())},
         {
             "role": "user",
             "content": [
@@ -154,7 +175,7 @@ def parse_image_receipt(
         },
     ]
 
-    raw_text = _chat(_VISION_MODEL, messages, max_tokens=1024)
+    raw_text = _chat(_VISION_MODEL, messages, max_tokens=2048)
     rows = _extract_json(raw_text)
     if not isinstance(rows, list):
         rows = [rows] if isinstance(rows, dict) else []
@@ -162,7 +183,8 @@ def parse_image_receipt(
     expenses = []
     for idx, row in enumerate(rows):
         doc = build_expense(
-            source_email_id=source_email_id,
+            user_id=user_id,
+            source_ref=source_ref,
             line_index=idx,
             date=row.get("date", ""),
             merchant=row.get("merchant", "Unknown"),
@@ -188,7 +210,8 @@ _TEXT_SYSTEM = (
     "and return ONLY a JSON array. "
     "Each element must have exactly these keys: "
     "date (YYYY-MM-DD), merchant (string), amount (number), currency (3-letter ISO), "
-    f"category (one of: {', '.join(config.CATEGORIES)}). "
+    "category (one of: {cats}), "
+    "flow (either 'withdrawal' for Retrait/debit lines or 'deposit' for Dépôt/deposit/credit lines). "
     "Normalize amounts to numbers (strip $ signs). "
     "Map each line to the best matching category; use Other if unsure. "
     "Return [] if no expenses are found. No markdown, no explanation."
@@ -207,11 +230,11 @@ def categorize_text(
     The caller wraps them into canonical expense docs via build_expense().
     """
     messages = [
-        {"role": "system", "content": _TEXT_SYSTEM},
+        {"role": "system", "content": _TEXT_SYSTEM.format(cats=_cats_str())},
         {"role": "user",   "content": f"Extract expenses from the following {source_type} content:\n\n{text}"},
     ]
 
-    raw_text = _chat(_TEXT_MODEL, messages, max_tokens=2048)
+    raw_text = _chat(_TEXT_MODEL, messages, max_tokens=4096)
     rows = _extract_json(raw_text)
     if not isinstance(rows, list):
         rows = [rows] if isinstance(rows, dict) else []
