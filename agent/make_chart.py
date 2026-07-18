@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", "secrets.env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "Infra", "secrets.env"))
 import store, chart
 exps = store.query_expenses()
 print("Expenses found:", len(exps))

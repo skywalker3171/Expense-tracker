@@ -1,8 +1,11 @@
 """
 config.py — load all secrets from environment variables.
-In local dev: `export $(cat ../secrets.env | grep -v ^# | xargs)` before running.
+In local dev: secrets live in ../Infra/secrets.env and are loaded via
+python-dotenv at process start (see main.py), or export them manually:
+    export $(cat ../Infra/secrets.env | grep -v ^# | xargs)
 In Code Engine: secrets are injected via --env-from-secret expense-secrets.
 """
+
 import os
 
 

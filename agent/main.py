@@ -15,10 +15,10 @@ import os
 import sys
 import time
 
-# Load secrets.env from the repo root (one level up from agent/) if present.
+# Load secrets.env from the Infra folder (../Infra/ relative to agent/) if present.
 # In Code Engine the vars are injected directly; this is a no-op there.
 from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", "secrets.env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "Infra", "secrets.env"))
 
 logging.basicConfig(
     level=logging.INFO,
