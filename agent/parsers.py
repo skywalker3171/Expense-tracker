@@ -12,7 +12,7 @@ import re
 import pandas as pd
 import pdfplumber
 
-from schema import build_expense, validate_expense
+from schema import build_expense, validate_expense, find_statement_year
 import watsonx_client
 
 log = logging.getLogger(__name__)
@@ -36,13 +36,27 @@ def _is_deposit(row: dict) -> bool:
     (Retrait). Uses an explicit 'flow' field from the model, with a text fallback.
     """
     flow = str(row.get("flow", "")).strip().lower()
-    if flow in ("deposit", "depot", "dépôt", "credit", "crédit"):
+    # Explicit deposit signals only. NOTE: "credit"/"crédit" is intentionally
+    # NOT treated as a deposit here — the model tends to emit "credit" for
+    # credit-card transactions (e.g. "Desjardins Cash Back Visa"), which are
+    # expenses (money out), not deposits. On these statements money-in is the
+    # "Dépôt" column, so we key deposits off dépôt/depot/deposit terms.
+    if flow in ("deposit", "depot", "dépôt"):
         return True
-    if flow in ("withdrawal", "retrait", "debit", "débit"):
+    if flow in ("withdrawal", "retrait", "debit", "débit", "credit", "crédit"):
         return False
-    # Fallback: scan the row's text fields for deposit keywords.
+    # Fallback: scan the row's text fields for an explicit deposit keyword,
+    # matched on word boundaries so substrings inside a merchant name do not
+    # accidentally flip an expense into a deposit.
     blob = " ".join(str(v) for v in row.values()).lower()
-    return ("dépôt" in blob or "depot" in blob or "deposit" in blob)
+    # Desjardins deposit transaction codes: DI (Dépôt), DMD (Dépôt Mobile),
+    # RIS (Ristourne), IVMW (Virement reçu). These indicate money IN.
+    code = str(row.get("code", "")).strip().upper()
+    if code in ("DI", "DMD", "RIS", "IVMW"):
+        return True
+    # Otherwise only an explicit deposit keyword (word-boundary matched) counts,
+    # so a merchant substring cannot flip an expense into a deposit.
+    return bool(re.search(r"\b(d[ée]p[ôo]t|deposit)\b", blob))
 
 
 def _to_amount(cell) -> float:
@@ -104,7 +118,11 @@ def _parse_bank_statement(pdf) -> list[dict]:
                 dep_amt = _to_amount(r[dep_col]) if dep_col < len(r) else 0.0
                 if ret_amt <= 0 and dep_amt <= 0:
                     continue
-                is_dep = dep_amt > 0
+                # Deposit only when the Dépôt column has a value AND the Retrait
+                # column does not. If both look populated it is almost always
+                # column bleed from the Solde (balance) column, so treat it as a
+                # withdrawal to avoid "everything becomes a deposit".
+                is_dep = dep_amt > 0 and ret_amt <= 0
                 amt = dep_amt if is_dep else ret_amt
                 desc = str(r[desc_col]).strip() if 0 <= desc_col < len(r) and r[desc_col] else "Unknown"
                 dt = str(r[date_col]).strip() if 0 <= date_col < len(r) and r[date_col] else ""
@@ -181,6 +199,11 @@ def parse_text_pdf(data: bytes, *, user_id: str, source_ref: str, filename: str)
         log.error("Failed to extract text from PDF %s: %s", filename, exc)
         return []
 
+    # Transaction rows on bank statements usually omit the year; the period
+    # header carries it (e.g. "du 1er juin au 30 juin 2026"). Use it so dates
+    # are not misdated by a downstream model guessing the year.
+    stmt_year = find_statement_year(full_text)
+
     # Column-aware path: if the PDF has explicit Retrait/Dépôt columns, use them.
     if bank_rows:
         expenses = []
@@ -199,6 +222,7 @@ def parse_text_pdf(data: bytes, *, user_id: str, source_ref: str, filename: str)
                 source_type="pdf",
                 flow=row.get("flow", "withdrawal"),
                 raw_text=full_text,
+                default_year=stmt_year,
             )
             errs = validate_expense(doc)
             if not errs:
@@ -230,6 +254,7 @@ def parse_text_pdf(data: bytes, *, user_id: str, source_ref: str, filename: str)
             source_type="pdf",
             flow=("deposit" if _is_deposit(row) else "withdrawal"),
             raw_text=full_text,
+            default_year=stmt_year,
         )
         errs = validate_expense(doc)
         if errs:

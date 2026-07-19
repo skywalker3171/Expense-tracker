@@ -24,7 +24,11 @@ async function request(path, { method = "GET", body, isForm = false } = {}) {
 
   const res = await fetch(`/api${path}`, { method, headers, body: payload });
 
-  if (res.status === 401) {
+  // 401 = unauthenticated; 403 can also indicate a missing/blocked credential
+  // (e.g. bearer scheme with no token). Treat both as "not logged in" so a
+  // stale/invalid token is cleared and the SPA falls back to the login screen
+  // instead of hanging on a blank page.
+  if (res.status === 401 || res.status === 403) {
     setToken(null);
     throw new Error("Session expired. Please log in again.");
   }
@@ -54,6 +58,9 @@ export const api = {
   getCategories: () => request("/categories"),
   setCategories: (categories) =>
     request("/categories", { method: "PUT", body: { categories } }),
+  recategorize: (id, category) =>
+    request(`/expenses/${id}`, { method: "PATCH", body: { category } }),
+  query: (q) => request("/query", { method: "POST", body: { q } }),
   resetDb: () => request("/reset", { method: "POST" }),
   upload: (file) => {
     const form = new FormData();

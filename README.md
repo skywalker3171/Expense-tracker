@@ -23,8 +23,21 @@ in **IBM Cloudant** (with raw files in **IBM Cloud Object Storage**).
 - **Deposit privacy** — deposit amounts are obfuscated (digits replaced) before
   storage and display, so real income figures are never shown in the demo.
 - **Web dashboard** — pie chart by category, "Total spent" / "Total received"
-  cards, editable global category list, separate Expenses and Deposits tables,
+  cards, editable per-user category list, separate Expenses and Deposits tables,
   and a Reset DB action. JWT-based auth.
+- **Natural-language query** — a search box on the dashboard accepts plain
+  English (for example "groceries from July 1st to 15th"). `POST /api/query`
+  sends the text to Granite via `watsonx_client.parse_query()`, which returns a
+  structured JSON filter (`categories`, `date_from`, `date_to`). The filter is
+  applied server-side to return a scoped summary (total plus by-category) and the
+  matching expense rows.
+- **One-click re-categorization with learning** — changing an expense category
+  from the dashboard (`PATCH /api/expenses/{id}`) updates the expense, saves a
+  per-user merchant to category rule (`store.upsert_category_rule`), and
+  back-applies that rule to all existing expenses from the same merchant. Saved
+  rules are also applied automatically to future uploads in
+  `pipeline.process_file()`, so the tracker learns each user's preferred
+  categorization over time.
 
 ## Architecture
 
@@ -62,7 +75,14 @@ full list). Required: `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`,
 `GMAIL_REFRESH_TOKEN`, `WATSONX_APIKEY`, `WATSONX_PROJECT_ID`, `COS_APIKEY`,
 `COS_HMAC_ACCESS_KEY`, `COS_HMAC_SECRET_KEY`, `CLOUDANT_URL`, `CLOUDANT_APIKEY`.
 Optional overrides include `WATSONX_URL`, `COS_ENDPOINT`, `COS_BUCKET`,
-`CLOUDANT_DB`, `JWT_SECRET`, `MAX_UPLOAD_MB`, `ALLOWED_ORIGINS`.
+`CLOUDANT_DB`, `MAX_UPLOAD_MB`.
+
+> **Security note:** `JWT_SECRET` is **required** and must be a strong,
+> non-default value (>= 16 chars). The app refuses to start if it is unset,
+> too short, or a known placeholder (e.g. `dev-insecure-change-me`).
+> `ALLOWED_ORIGINS` is a comma-separated CORS allow-list that **defaults to
+> empty (deny)** — set it to your SPA origin(s) in production. See
+> `legacy docs/security-hardening.md` for the full hardening review.
 
 ### 2. Install dependencies
 ```bash
@@ -96,8 +116,10 @@ single image. Secrets are injected at runtime (e.g. IBM Code Engine
 
 ## Notes
 
-- Categories are a fixed global list (`agent/config.py`), editable from the
-  dashboard; models are prompted to map every transaction to one of them.
+- Categories start from a default list (`agent/config.py`) and are **per-user**:
+  each account's edits (`PUT /api/categories`) are stored under its own
+  `user_id`, so one user can never overwrite another user's category list.
+  Models are prompted to map every transaction to one of the active categories.
 - All data is scoped by `user_id` — web users see only their own expenses; Gmail
   ingests are attributed to `GMAIL_USER_ID`.
 - Expense IDs are deterministic, so re-ingesting the same file is an idempotent

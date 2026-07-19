@@ -218,6 +218,38 @@ _TEXT_SYSTEM = (
 )
 
 
+_QUERY_SYSTEM = (
+    "You convert a natural-language expense search into a JSON filter. "
+    "Return ONLY a JSON object with exactly these keys: "
+    "categories (array of category names chosen from: {cats}; [] if none mentioned), "
+    "date_from (YYYY-MM-DD or null), date_to (YYYY-MM-DD or null). "
+    "Interpret relative/partial dates using the current year {year}. "
+    "For a month name with day numbers like '1st to 15th of July', produce full ISO dates. "
+    "If a bound is not mentioned, use null. No markdown, no explanation."
+)
+
+
+def parse_query(*, text: str) -> dict:
+    """Parse a natural-language expense query into {categories, date_from, date_to}."""
+    from datetime import datetime
+    messages = [
+        {"role": "system", "content": _QUERY_SYSTEM.format(cats=_cats_str(), year=datetime.now().year)},
+        {"role": "user",   "content": text},
+    ]
+    raw = _chat(_TEXT_MODEL, messages, max_tokens=256)
+    obj = _extract_json(raw)
+    if not isinstance(obj, dict):
+        obj = {}
+    cats = obj.get("categories") or []
+    if not isinstance(cats, list):
+        cats = [cats]
+    return {
+        "categories": [str(c) for c in cats if c],
+        "date_from": obj.get("date_from") or None,
+        "date_to": obj.get("date_to") or None,
+    }
+
+
 def categorize_text(
     *,
     text: str,

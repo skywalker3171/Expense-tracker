@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
 
@@ -11,10 +11,12 @@ export default function Login() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  if (user) {
-    navigate("/", { replace: true });
-    return null;
-  }
+  // Redirect already-authenticated users away from the login page. Doing this
+  // in an effect (not during render) avoids the React "cannot update while
+  // rendering" crash that can blank the screen.
+  useEffect(() => {
+    if (user) navigate("/", { replace: true });
+  }, [user, navigate]);
 
   async function onSubmit(e) {
     e.preventDefault();

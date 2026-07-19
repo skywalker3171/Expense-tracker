@@ -18,7 +18,7 @@ function NavBar() {
   if (!user) return null;
   return (
     <nav className="navbar">
-      <span className="brand">💸 Expense Tracker</span>
+      <span className="brand">💸 Personal Expense Tracker</span>
       <div className="nav-links">
         <Link to="/">Dashboard</Link>
         <Link to="/upload">Upload</Link>

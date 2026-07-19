@@ -66,9 +66,18 @@ Then walk through:
    every line.
 4. **Dashboard** shows summary cards, a category pie chart, and the expense
    table — all for the logged-in user only.
-5. **Multi-tenant proof:** register a *second* user and show their expense list
+5. **Natural-language query:** type a plain-English search such as "groceries
+   from July 1st to 15th" into the dashboard search box. `POST /api/query` sends
+   the text to watsonx.ai Granite (`watsonx_client.parse_query()`), which returns
+   a structured JSON filter (`categories`, `date_from`, `date_to`); the backend
+   applies it and returns a filtered summary + rows.
+6. **Re-categorization with learning:** change an expense's category inline
+   (`PATCH /api/expenses/{id}`). The choice is saved as a per-user merchant rule
+   (`store.upsert_category_rule`), back-applied to existing expenses from the same
+   merchant, and applied automatically to future uploads in `process_file()`.
+7. **Multi-tenant proof:** register a *second* user and show their expense list
    is empty / disjoint — no cross-user data leakage.
-6. **Idempotency:** re-upload the same file → no duplicate rows (deterministic
+8. **Idempotency:** re-upload the same file → no duplicate rows (deterministic
    `sha256(user_id:source_ref:line_index)` doc id).
 
 ## 5. Deployment status — deploy-ready
@@ -98,8 +107,31 @@ Suggested submission wording:
   categorized expenses.
 - `/api/expenses`, `/api/summary`, `/api/chart.png` return **only** the caller's
   data; a second user sees a disjoint, empty set.
+- Natural-language query: `POST /api/query` parses plain English via Granite
+  (`watsonx_client.parse_query()`) into a `{categories, date_from, date_to}`
+  filter and returns a scoped, filtered summary + rows.
+- Re-categorization with learning: `PATCH /api/expenses/{id}` updates the
+  category, persists a per-user merchant rule, back-applies it to existing
+  expenses, and applies it to future uploads.
 - Robust LLM JSON parsing: recovers rows even when the model output is truncated.
 - No-Docker parity test: `python web/backend/test_web_smoke.py`.
+
+## 6b. Security hardening applied
+
+Three high-signal, low-cost security fixes were implemented (full review in
+`legacy docs/security-hardening.md`):
+
+- **No forgeable auth secret** — `JWT_SECRET` is now required and validated at
+  startup (`agent/config.py`): the app refuses to run if the secret is unset,
+  under 16 chars, or a known placeholder such as `dev-insecure-change-me`.
+- **Safe CORS** — removed the invalid/insecure wildcard-origin + credentials
+  combination (`web/backend/app.py`). Since auth uses bearer tokens (not
+  cookies), `allow_credentials=False`, methods/headers are scoped, and
+  `ALLOWED_ORIGINS` defaults to deny (explicit allow-list in production).
+- **Per-user categories** — the category list is now stored per `user_id`
+  (`store.get_categories`/`set_categories`, `routes_expenses.py`), so one user
+  can no longer overwrite the shared/global category list for everyone —
+  reinforcing the multi-tenant isolation shown in the demo.
 
 ## 7. Repo map
 

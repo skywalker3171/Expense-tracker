@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 
 import router
+import schema
 import store
 
 log = logging.getLogger(__name__)
@@ -35,8 +36,14 @@ def process_file(*, user_id: str, source_ref: str, filename: str,
         source_ref=source_ref,
     )
 
-    # 3. Persist each expense (idempotent upsert on deterministic id).
+    # 3. Apply the user's learned category rules (override the AI's guess for
+    #    known merchants), then persist each expense (idempotent upsert).
+    rules = store.get_category_rules(user_id)
     for doc in expenses:
+        if str(doc.get("flow", "")).strip().lower() != "deposit":
+            key = schema.normalize_merchant(doc.get("merchant", ""))
+            if key in rules:
+                doc["category"] = rules[key]
         store.upsert_expense(doc)
 
     log.info("Processed %s for user %s -> %d expenses",

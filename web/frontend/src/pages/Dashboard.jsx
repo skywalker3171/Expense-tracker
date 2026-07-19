@@ -16,6 +16,11 @@ export default function Dashboard() {
   const [categories, setCategories] = useState([]);
   const [catInput, setCatInput] = useState("");
   const [catMsg, setCatMsg] = useState("");
+  const [savingId, setSavingId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [queryText, setQueryText] = useState("");
+  const [queryResult, setQueryResult] = useState(null);
+  const [querying, setQuerying] = useState(false);
 
   useEffect(() => {
     Promise.all([api.summary(), api.listExpenses(), api.getCategories()])
@@ -55,6 +60,48 @@ export default function Dashboard() {
     saveCategories(categories.filter((c) => c !== name));
   }
 
+  async function changeExpenseCategory(expense, newCategory) {
+    if (!newCategory || newCategory === expense.category) return;
+    setSavingId(expense.id);
+    setCatMsg("");
+    try {
+      await api.recategorize(expense.id, newCategory);
+      const [s, e] = await Promise.all([api.summary(), api.listExpenses()]);
+      setSummary(s);
+      setExpenses(e.expenses || []);
+      setDeposits(e.deposits || []);
+      setCatMsg(`Category learned — future "${expense.merchant}" will use ${newCategory}.`);
+    } catch (err) {
+      setCatMsg(err.message || "Failed to update category");
+    } finally {
+      setSavingId(null);
+      setEditingId(null);
+    }
+  }
+
+  async function runQuery() {
+    const q = queryText.trim();
+    if (!q) {
+      setQueryResult(null);
+      return;
+    }
+    setQuerying(true);
+    setError("");
+    try {
+      const res = await api.query(q);
+      setQueryResult(res);
+    } catch (err) {
+      setError(err.message || "Query failed");
+    } finally {
+      setQuerying(false);
+    }
+  }
+
+  function clearQuery() {
+    setQueryText("");
+    setQueryResult(null);
+  }
+
   async function resetDb() {
     if (!window.confirm("Flush all your expense data? This cannot be undone.")) return;
     try {
@@ -72,9 +119,11 @@ export default function Dashboard() {
   if (loading) return <div className="center">Loading…</div>;
   if (error) return <p className="error">{error}</p>;
 
-  const pieData = summary
-    ? Object.entries(summary.by_category).map(([name, value]) => ({ name, value }))
+  const activeSummary = queryResult || summary;
+  const pieData = activeSummary
+    ? Object.entries(activeSummary.by_category).map(([name, value]) => ({ name, value }))
     : [];
+  const displayExpenses = queryResult ? queryResult.expenses || [] : expenses;
 
   const depositTotal = deposits.reduce((sum, d) => sum + Number(d.amount || 0), 0);
 
@@ -84,7 +133,7 @@ export default function Dashboard() {
         Deposit values are obfuscated<br />for privacy reasons
       </div>
       <div className="page-head">
-        <h1>Dashboard</h1>
+        <h1>Expense Dashboard</h1>
         <button type="button" className="btn-danger" onClick={resetDb}>
           Reset DB
         </button>
@@ -139,6 +188,37 @@ export default function Dashboard() {
         </p>
       )}
 
+      <div className="query-bar">
+        <input
+          type="text"
+          className="query-input"
+          value={queryText}
+          placeholder='Ask in plain English, e.g. "credit card and transport from 1st to 15th of July"'
+          onChange={(ev) => setQueryText(ev.target.value)}
+          onKeyDown={(ev) => ev.key === "Enter" && runQuery()}
+        />
+        <button type="button" onClick={runQuery} disabled={querying}>
+          {querying ? "Searching…" : "Search"}
+        </button>
+        {queryResult && (
+          <button type="button" className="btn-link" onClick={clearQuery}>
+            Clear
+          </button>
+        )}
+      </div>
+      {queryResult && (
+        <p className="query-note">
+          Showing {queryResult.count} expense(s)
+          {queryResult.filter?.categories?.length
+            ? ` in ${queryResult.filter.categories.join(", ")}`
+            : ""}
+          {queryResult.filter?.date_from || queryResult.filter?.date_to
+            ? ` from ${queryResult.filter.date_from || "…"} to ${queryResult.filter.date_to || "…"}`
+            : ""}
+          {" "}(total ${Number(queryResult.total || 0).toFixed(2)}).
+        </p>
+      )}
+
       <div className="cat-editor">
         <h2>Categories</h2>
         <div className="cat-tags">
@@ -180,20 +260,51 @@ export default function Dashboard() {
           </tr>
         </thead>
         <tbody>
-          {expenses.map((e) => (
+          {displayExpenses.map((e) => (
             <tr key={e.id}>
               <td>{e.date}</td>
               <td>{e.merchant}</td>
-              <td>{e.category}</td>
+              <td>
+                {editingId === e.id ? (
+                  <select
+                    className="cat-select"
+                    autoFocus
+                    value={categories.includes(e.category) ? e.category : ""}
+                    disabled={savingId === e.id}
+                    onChange={(ev) => changeExpenseCategory(e, ev.target.value)}
+                    onBlur={() => setEditingId(null)}
+                  >
+                    {!categories.includes(e.category) && (
+                      <option value="">{e.category || "—"}</option>
+                    )}
+                    {categories.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="cat-cell">
+                    {e.category}
+                    <button
+                      type="button"
+                      className="cat-edit"
+                      title="Change category"
+                      aria-label="Change category"
+                      onClick={() => setEditingId(e.id)}
+                    >
+                      ✎
+                    </button>
+                  </span>
+                )}
+              </td>
               <td className="num">
                 {Number(e.amount).toFixed(2)} {e.currency}
               </td>
             </tr>
           ))}
-          {expenses.length === 0 && (
+          {displayExpenses.length === 0 && (
             <tr>
               <td colSpan={4} className="empty">
-                No expenses yet.
+                {queryResult ? "No expenses match your query." : "No expenses yet."}
               </td>
             </tr>
           )}

@@ -43,10 +43,21 @@ CLOUDANT_DB     = os.environ.get("CLOUDANT_DB", "expenses")
 # per-request user_id instead.
 GMAIL_USER_ID   = os.environ.get("GMAIL_USER_ID", "gmail-mailbox-owner")
 
-# Web / auth config (used by web/backend; safe defaults for local dev)
-JWT_SECRET      = os.environ.get("JWT_SECRET", "dev-insecure-change-me")
+# Web / auth config (used by web/backend).
+# JWT_SECRET signs auth tokens; a weak/default value makes every token forgeable,
+# so it must be provided explicitly and must not be a known insecure placeholder.
+_INSECURE_JWT_SECRETS = {"", "dev-insecure-change-me", "change-me", "secret"}
+JWT_SECRET      = os.environ.get("JWT_SECRET", "")
+if JWT_SECRET in _INSECURE_JWT_SECRETS or len(JWT_SECRET) < 16:
+    raise EnvironmentError(
+        "JWT_SECRET must be set to a strong, non-default value (>= 16 chars). "
+        "Set it via the environment / a secrets manager before starting the app."
+    )
+
 MAX_UPLOAD_MB   = int(os.environ.get("MAX_UPLOAD_MB", "10"))
-ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "*")
+# Comma-separated allow-list of browser origins. Defaults to empty (deny) so a
+# forgotten config does not silently allow every site; set explicitly in prod.
+ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "")
 
 # Expense categories (fixed list — models must map to one of these)
 CATEGORIES = [

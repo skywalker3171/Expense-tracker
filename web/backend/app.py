@@ -21,13 +21,19 @@ import routes_expenses
 
 app = FastAPI(title="Expense Tracker API", version="1.0")
 
-_origins = ["*"] if config.ALLOWED_ORIGINS == "*" else [o.strip() for o in config.ALLOWED_ORIGINS.split(",")]
+# Build the CORS allow-list. Auth uses bearer tokens (not cookies), so we do NOT
+# enable credentials — that lets us keep a strict origin policy without the
+# invalid/insecure wildcard-origin + credentials combination.
+_origins = (
+    ["*"] if config.ALLOWED_ORIGINS.strip() == "*"
+    else [o.strip() for o in config.ALLOWED_ORIGINS.split(",") if o.strip()]
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(auth.router,            prefix="/api/auth", tags=["auth"])
