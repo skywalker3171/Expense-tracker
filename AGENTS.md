@@ -1,0 +1,16 @@
+# AGENTS.md
+
+This file provides guidance to agents when working with code in this repository.
+
+- Python imports rely on path injection instead of packages: [`web/backend/app.py`](web/backend/app.py) prepends [`agent/`](agent) to `sys.path`, and [`web/backend/test_web_smoke.py`](web/backend/test_web_smoke.py) imports `app` after inserting `web/backend` into `sys.path`. Run backend tests from the repo root so these relative paths resolve.
+- There is no root task runner or lint config. Backend/frontend commands are directory-specific: frontend scripts live only in [`web/frontend/package.json`](web/frontend/package.json), while Python tests are plain pytest/script entrypoints documented in [`README.md`](README.md) and test files.
+- Build SPA before validating production serving: [`web/backend/app.py`](web/backend/app.py) only mounts the frontend when [`web/frontend/dist`](web/frontend/dist) exists; otherwise local dev expects the separate Vite server.
+- Single-test commands are file-based, not named-test wrappers: `python -m pytest web/backend/test_web_smoke.py -q`, `python -m pytest agent/test_smoke.py -q`, or run either file directly as a script because both include `__main__` entrypoints.
+- [`agent/test_smoke.py`](agent/test_smoke.py) seeds fake env vars before importing [`config`](agent/config.py); keep that import order if you extend the smoke test, otherwise required secrets will abort startup.
+- [`agent/config.py`](agent/config.py) hard-fails on weak or missing `JWT_SECRET`, even in local runs. Any command importing `config` needs a real secret unless the test pre-seeds env first.
+- Expense ids are deterministic via [`schema.make_id()`](agent/schema.py:30), using `user_id + source_ref + line_index`; preserve that tuple for idempotent re-ingest behavior.
+- Learned categorization is merchant-key based: [`pipeline.process_file()`](agent/pipeline.py:20) overrides AI output using [`schema.normalize_merchant()`](agent/schema.py:101) and [`store.get_category_rules()`](agent/store.py:104). Re-categorization logic must normalize merchants the same way.
+- Category lists are per-user Cloudant docs (`settings:categories:{user_id}`) in [`store._categories_doc_id()`](agent/store.py:98); calling [`store.get_categories()`](agent/store.py:123) without `user_id` falls back to global defaults used by the Gmail path.
+- Deposits are first-class expense docs with `flow="deposit"` from [`schema.build_expense()`](agent/schema.py:125), but web summaries and charts explicitly filter them out in [`web/backend/routes_expenses.py`](web/backend/routes_expenses.py).
+- Code style is minimal and file-local: Python uses module-level helpers and untyped dict payloads rather than Pydantic models in the shared `agent/` layer; frontend code uses double quotes, semicolons, and relative imports with extensionless local JS imports but explicit `.jsx` for component files, as seen in [`web/frontend/src/main.jsx`](web/frontend/src/main.jsx) and [`web/frontend/src/App.jsx`](web/frontend/src/App.jsx).
+- Error handling is intentionally shallow in storage/model adapters: store functions usually log then raise on write failures, while query paths like [`store.query_expenses()`](agent/store.py:57) return `[]` on Cloudant read failure. Match that behavior instead of introducing new exception shapes unless required.

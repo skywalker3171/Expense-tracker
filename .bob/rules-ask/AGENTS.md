@@ -1,0 +1,6 @@
+# Project Documentation Rules (Non-Obvious Only)
+- [`web/README.md`](web/README.md) is the authoritative local-run reference for the web app; the root [`README.md`](README.md) mixes agent and web flows.
+- The backend serves the SPA only when [`web/frontend/dist`](web/frontend/dist) exists; missing frontend pages in local testing may just mean the bundle was never built.
+- Python imports are not package-based: backend modules depend on `sys.path` edits in [`web/backend/app.py`](web/backend/app.py) and [`web/backend/test_web_smoke.py`](web/backend/test_web_smoke.py), so examples that `cd` into subfolders can be misleading.
+- Per-user categories are stored in Cloudant documents, not frontend state or config files; see [`agent/store.py`](agent/store.py) for the real source of truth.
+- Query/filter behavior for the dashboard is split between LLM parsing in [`agent/watsonx_client.py`](agent/watsonx_client.py) and server-side filtering in [`web/backend/routes_expenses.py`](web/backend/routes_expenses.py).

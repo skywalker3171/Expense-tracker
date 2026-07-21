@@ -1,0 +1,6 @@
+# Project Architecture Rules (Non-Obvious Only)
+- Both ingest paths must continue to funnel through [`pipeline.process_file()`](agent/pipeline.py:20); that function is where raw-file COS upload, learned-category overrides, and idempotent persistence are coupled.
+- The shared `agent/` layer is intentionally framework-agnostic and dict-based; introducing FastAPI/Pydantic request models into that layer would break its reuse by the Gmail poller.
+- User isolation is enforced in storage queries, not just auth middleware: [`store.query_expenses()`](agent/store.py:57) injects `user_id` into every selector, and route handlers assume that behavior.
+- Deposit handling is architectural, not presentational: web summaries, charts, and recategorization all branch on `flow`, so new analytics endpoints must decide explicitly whether deposits participate.
+- Frontend/backend single-origin serving is optional at runtime and discovered from the filesystem in [`web/backend/app.py`](web/backend/app.py); deployment and local-dev paths intentionally differ.

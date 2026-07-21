@@ -1,0 +1,63 @@
+TECHNICAL STATEMENT - AI-Powered Expense Tracker (IBM watsonx Challenge)
+
+ARCHITECTURE
+A React + Vite SPA talks to a Python FastAPI backend that reuses a shared "agent"
+core. Two ingest paths - browser upload (primary) and a retained Gmail poller
+(secondary) - both call one function, pipeline.process_file(), so parsing and
+storage logic lives in one place. Flow: Browser -> /api/upload ->
+process_file(user_id) -> COS (raw file) -> router (parser/model dispatch) ->
+Cloudant (canonical docs). Every read/write is scoped by user_id
+
+INGEST AND ROUTING
+router.route() dispatches by MIME type / extension:
+- CSV -> pandas -> Granite normalizes and categorizes.
+- Images (png/jpg/gif/webp/tiff) -> base64 -> Llama Vision OCR + extraction.
+- Text PDFs -> a column-aware bank-statement parser reads the ruled table via
+  pdfplumber.extract_tables(), mapping "Retrait" amounts to withdrawals and
+  "Depot" to deposits (accent-insensitive); Granite is the fallback.
+- Scanned/image PDFs -> first page rasterized (pypdf + Pillow) -> Vision model.
+
+AI (watsonx.ai)
+Two models via ml/v1/text/chat (temperature 0.0, capped max_new_tokens):
+llama-3-2-11b-vision-instruct for OCR, and granite-3-8b-instruct for text
+categorization and the NL query. IAM tokens are cached; output is parsed
+defensively (_extract_json recovers objects from truncated JSON) and coerced to
+the schema before persistence.
+
+DATA MODEL AND STORAGE
+Canonical expense docs carry a user_id and a deterministic id =
+sha256(user_id:source_ref:line_index), so re-uploading a file is an idempotent
+upsert, not a duplicate. Cloudant holds expense docs behind a Mango index on
+(user_id, date); COS stores raw files under the key {user_id}/{source_ref}/{name}.
+
+FEATURES
+- NL query: POST /api/query sends text to Granite, returning a {categories,
+  date_from, date_to} filter applied server-side.
+- Learning re-categorization: PATCH /api/expenses/{id} saves a per-user merchant
+  rule, back-applies it to matching rows, and applies it to future uploads.
+- Deposit privacy: deposit amounts are obfuscated before storage and display.
+- Per-user categories: each account edits its own list (PUT /api/categories).
+
+SECURITY (SHORT VERSION)
+- No forgeable auth secret: JWT_SECRET is required and validated at startup - the
+  app refuses to run if it is unset, under 16 chars, or a known placeholder.
+- Safe CORS: bearer-token auth means allow_credentials=False; methods/headers are
+  scoped and ALLOWED_ORIGINS defaults to empty (deny), with an explicit allow-list
+  in production - no insecure wildcard-origin-plus-credentials combination.
+- Multi-tenant isolation: every data route depends on current_user (JWT decode),
+  every Cloudant selector injects user_id, and categories are stored per user, so
+  one account can never read or overwrite another's data.
+- Other measures: bcrypt hashing, an upload size/extension limit, defensive JSON
+  parsing with strict coercion, and secrets kept out of the image. The hardening
+  roadmap (legacy docs/security-hardening.md) maps further steps to IBM Secrets
+  Manager, App ID, Key Protect, and Cloud Internet Services.
+
+DEPLOYMENT AND TESTING
+web/Dockerfile is a multi-stage build: Node builds the SPA, then Python serves
+the API and static SPA on one port, mirroring local behavior. Secrets are
+injected at runtime (IBM Code Engine --env-from-secret). Smoke tests
+(agent/test_smoke.py, web/backend/test_web_smoke.py) cover the pipeline and
+per-user isolation.
+
+STACK: Python, FastAPI, pdfplumber, pandas, pypdf, Pillow; React, Vite, Recharts;
+watsonx.ai, IBM Cloudant, IBM Cloud Object Storage; JWT auth.

@@ -1,0 +1,136 @@
+IBM CLOUD RESOURCES AND THE TWO LLMs - Explanation
+
+SHORT ANSWER
+There are no "granite" or "llama" resources to find in your IBM Cloud resource
+list, and that is expected. The two models are IBM-HOSTED FOUNDATION MODELS that
+you call over the shared watsonx.ai inference API - they are NOT endpoints you
+deploy, provision, or own, so they never appear as separate resources.
+
+WHY THEY DON'T APPEAR AS RESOURCES
+From agent/watsonx_client.py, the app calls the shared foundation-model chat API
+and simply names each model by its catalog model_id:
+
+    _VISION_MODEL = "meta-llama/llama-3-2-11b-vision-instruct"
+    _TEXT_MODEL   = "ibm/granite-3-8b-instruct"
+
+    url  = f"{_WML_BASE}/ml/v1/text/chat?version=2024-05-01"
+    body = {"model_id": model_id, "project_id": config.WATSONX_PROJECT_ID, ...}
+
+(config.WATSONX_URL defaults to https://us-south.ml.cloud.ibm.com)
+
+These are IBM's pre-hosted, multi-tenant models available to any watsonx.ai
+project. You never provision or host them individually - you consume them through
+your project - so they will NOT show up under names like "granite" or "llama" in
+your resource list.
+
+WHERE TO SEE THEM (not as resources, but in the watsonx.ai UI)
+- Open the watsonx.ai / watsonx portal:  https://dataplatform.cloud.ibm.com/wx
+  (Dallas / us-south region).
+- Go to your project "expense-agent", then open the "Prompt Lab" or the
+  "Foundation models" / model catalog. There you can select and see both
+  "granite-3-8b-instruct" (IBM) and "llama-3-2-11b-vision-instruct" (Meta).
+- Model catalog reference:
+  https://dataplatform.cloud.ibm.com/docs/content/wsj/analyze-data/fm-models.html
+
+THE RESOURCES THAT DO APPEAR IN YOUR IBM CLOUD LIST
+What links your account to those models is your watsonx.ai PROJECT plus its
+backing Watson Machine Learning instance and the associated storage. From the
+legacy planning doc (legacy docs/Expense-tracker.md), the provisioned resources
+are (region us-south / Dallas):
+
+1. watsonx.ai PROJECT: "expense-agent"
+   - project_id: 3885967a-6227-4fff-9b47-f7f799237543
+   - This is the object referenced by WATSONX_PROJECT_ID; it is where the Granite
+     and Llama foundation models are invoked. Open it at:
+     https://dataplatform.cloud.ibm.com/projects/3885967a-6227-4fff-9b47-f7f799237543
+
+2. Watson Machine Learning instance (pm-20): "expense-wml"
+   - guid: 3514245f-5f1a-45a6-819a-2135c9d93781  (Lite plan)
+   - This WML instance is what provides foundation-model inference to the project.
+     In your resource list it is a "Watson Machine Learning" (or "watsonx.ai
+     Runtime") entry - this is the AI resource you are seeing, not "granite/llama".
+
+3. Cloud Object Storage: "CloudObjectStorage"
+   - guid: 27cc4856-b162-4904-9c5d-981f56382975
+   - bucket: expense-receipts-raw-jb  (stores raw uploaded receipt files)
+   - endpoint: https://s3.us-south.cloud-object-storage.appdomain.cloud
+
+4. Cloudant: "expense-cloudant"  (Lite plan)
+   - guid: 8ce9c85d-65c7-4b94-ad36-c381f64ee98d
+   - database: expenses  (per-user expense documents)
+
+5. Secrets Manager: "expense-secrets"  (trial)
+   - guid: 98b1fcc3-a044-4007-9e1c-a43d737a53e1
+
+6. IAM API key: "expense-agent-key"
+   - id: ApiKey-6645937d-5e3f-402a-86f9-e1ae4d6fda12
+
+NOTE: All IDs/GUIDs above come from the legacy planning doc and reflect that
+build; confirm current values in your account, since a Lite watsonx.ai project
+may show its runtime as "watsonx.ai Runtime" / "Watson Machine Learning" rather
+than under the old pm-20 label.
+
+STEP-BY-STEP: HOW TO FIND GRANITE AND LLAMA IN PROMPT LAB
+1. Open https://dataplatform.cloud.ibm.com/wx and sign in (region us-south/Dallas
+   - check the region selector at the top right if you don't see the project).
+2. Left hamburger menu (top-left) -> "Projects" -> "View all projects" -> open
+   "expense-agent".
+3. Inside the project, click the blue "New task" (or "New asset") button, then
+   choose "Chat and build prompts with foundation models" -> this opens PROMPT LAB.
+   (Alternatively: hamburger menu -> under "Tools" or "Build" -> "Prompt Lab".)
+4. In Prompt Lab, at the TOP-CENTER there is a MODEL SELECTOR (a dropdown that
+   shows the currently selected model name, e.g. "granite-3-8b-instruct"). Click
+   it.
+5. A model dialog opens with a SEARCH box. Type "granite" -> select
+   "granite-3-8b-instruct". Clear it and type "llama" or "vision" -> select
+   "llama-3-2-11b-vision-instruct".
+   - If a model is not shown, click "View all foundation models" and toggle any
+     filter (e.g. "Available" / provider = Meta or IBM), then search again.
+   - The vision model may be listed as "Llama 3.2 11B Vision Instruct".
+
+ALTERNATIVE (browse the whole catalog without Prompt Lab)
+- In the project, hamburger menu -> "Foundation models" (or the "Resource hub" /
+  "Model library" tile on the watsonx home page). This lists every available
+  model; use the search field and type "granite" and then "llama".
+- Direct catalog docs (names + model IDs):
+  https://dataplatform.cloud.ibm.com/docs/content/wsj/analyze-data/fm-models.html
+
+IMPORTANT CAVEAT ABOUT THE LITE PLAN
+- Model availability depends on your region and plan. On a Lite/free watsonx.ai
+  plan some models (especially the Llama vision model) may not be selectable, or
+  may be greyed out / require a paid (Pay-As-You-Go) plan. If you cannot find or
+  select "llama-3-2-11b-vision-instruct", that is a plan/region limitation, not a
+  problem with your project. The app still calls it by model_id at runtime as long
+  as the account/plan permits inference.
+
+TROUBLESHOOTING: "I only see Llama, not Granite" in Prompt Lab
+This is normal. The Prompt Lab model selector shows a SHORTLIST of recommended
+models by default, and the exact "granite-3-8b-instruct" build is an older
+release that is often hidden behind a filter or in the full catalog. Do this:
+
+1. In the model-selector dialog, click the "View all foundation models" (or
+   "Browse all") link at the bottom - do NOT rely on the short dropdown list.
+2. In the full catalog, CLEAR any active filters. Look for filter chips like
+   "Task", "Provider", and especially any "Available"/"Deprecated" or generation
+   filter. Granite 3.0 8B is a previous-generation model, so enable "Show all"
+   / include earlier versions if such a toggle exists.
+3. In the catalog search box type exactly: granite-3-8b-instruct
+   (also try just "granite 3" or "granite instruct"). Provider = IBM.
+4. If it still doesn't appear, it is because the "granite-3-8b-instruct" build has
+   been superseded/withdrawn from the UI shortlist in your region. The model ID is
+   still valid for API inference in most cases, but for the DEMO/video you have two
+   easy options:
+   a) Show whichever Granite text model IS listed (e.g. "granite-3-3-8b-instruct"
+      or the newest "Granite Instruct") - it is the same Granite family doing the
+      same CSV/PDF categorization job. For a cleaner demo, you can update the code
+      to the currently-available ID (see below).
+   b) Just demo Llama Vision (which you can see) for the receipt OCR, and mention
+      Granite handles the CSV/text categorization via the API.
+
+TO SWITCH THE CODE TO AN AVAILABLE GRANITE MODEL (optional)
+- Edit agent/watsonx_client.py and change:
+      _TEXT_MODEL = "ibm/granite-3-8b-instruct"
+  to the model_id shown in your Prompt Lab catalog, for example:
+      _TEXT_MODEL = "ibm/granite-3-3-8b-instruct"
+  Use the exact ID string the catalog lists (prefixed with "ibm/"). Then re-run
+  a CSV/PDF upload to confirm categorization still works.

@@ -1,0 +1,92 @@
+Image Processing — How many LLMs are used?
+
+ANSWER: For image processing, only 1 LLM is used — NOT 2.
+
+There is no separate "OCR model" followed by a separate "parsing model." A single
+multimodal vision model performs OCR and returns the parsed, structured result in
+one call.
+
+============================================================
+The image path is a single multimodal call
+============================================================
+
+When an image (.png / .jpg / .jpeg / .gif / .webp / .tiff / .tif) — or a
+scanned/image-based PDF — is ingested, the flow is:
+
+    pipeline.process_file()
+        -> router.route()
+            -> _parse_image()
+                -> watsonx_client.parse_image_receipt()
+
+Inside parse_image_receipt() (in agent/watsonx_client.py), the raw image bytes are
+base64-encoded and sent in a SINGLE _chat() call to the vision model:
+
+    Model: meta-llama/llama-3-2-11b-vision-instruct
+
+That one call does BOTH jobs at once:
+  1. OCRs the receipt image (reads the text off the image), AND
+  2. Returns the parsed, structured result directly as a JSON array of expense
+     rows: date, merchant, amount, currency, category.
+
+There is NO separate step where text is first extracted and then handed to a
+second model for parsing. The vision model outputs the final structured JSON
+directly.
+
+Evidence from the code
+
+1) agent/router.py
+   - Image extensions and any "image/*" MIME type route to _parse_image():
+         if ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".tiff", ".tif") \
+                 or mime_type.startswith("image/"):
+             return _parse_image(data, user_id, source_ref, filename)
+   - _parse_image() calls watsonx_client.parse_image_receipt() and returns its
+     result directly (no chaining to Granite/text model).
+   - Scanned/image PDFs (no text layer) go to _parse_image_pdf(), which
+     rasterizes the first page (pypdf + Pillow — NOT an LLM) and then also calls
+     the SAME parse_image_receipt(). Still just one LLM.
+
+2) agent/watsonx_client.py — parse_image_receipt()
+   - Builds one messages payload containing the image + an instruction, then:
+         raw_text = _chat(_VISION_MODEL, messages, max_tokens=2048)
+         rows = _extract_json(raw_text)
+   - _chat() is the ONLY model call. _extract_json() is plain regex/JSON parsing
+     (no LLM). The rows are then wrapped into canonical expense docs via
+     build_expense(). No second model is involved.
+
+3) agent/pipeline.py — process_file()
+   - After router.route() returns the expenses, the pipeline only:
+       * applies the user's learned category rules (a dictionary lookup, not an
+         LLM), and
+       * upserts each expense into Cloudant.
+   - No additional LLM call happens here.
+
+Contrast: the CSV / text-PDF path (also 1 LLM, but a different one)
+
+For NON-image inputs the system uses a different single model:
+  - CSV and text-based PDFs -> ibm/granite-3-8b-instruct (text model)
+    via watsonx_client.categorize_text().
+
+So overall the project uses two DIFFERENT models across the whole system, but for
+any given input only ONE model runs:
+  - Images / scanned PDFs -> Llama-3.2-11B-Vision (does OCR + extraction in one call)
+  - CSV / text PDFs       -> Granite-3-8B-Instruct (normalize + categorize)
+
+The Llama vision path and the Granite text path are mutually exclusive per file;
+they are never chained together for a single image.
+
+Summary
+
+Image processing = 1 LLM (Llama-3.2-11B-Vision), which performs OCR and produces
+the structured/parsed result in a single call. The "transform image to text" and
+"parse text into DB rows" steps are combined into that one multimodal call. The
+only thing after the model is deterministic code: JSON parsing, applying learned
+category rules, and upserting into Cloudant.
+
+======================================================================================
+
+IBM watsonx.ai's default model is a shared, multitenant pool. IBM curates a set of foundation models (Granite, Llama, Mistral, etc.) and hosts them on multitenant hardware, with billing based on tokens used. You just call the model by ID — no deployment step, no dedicated capacity. This is why the Claude-built POC "just works" against a shared endpoint. 
+Statwks
+
+Azure OpenAI Service's default model is the opposite: you provision a resource, then explicitly create a "deployment" of a specific model version inside it, with its own quota/TPM allocation, before you can call it. Nothing is callable without that step.
+
+The important nuance: watsonx.ai also offers a dedicated option, it's just not the default.

@@ -5,7 +5,7 @@
 A multi-user expense tracker that turns any receipt (image, PDF, or CSV) into
 categorized, queryable expenses using an **all-IBM** stack: **watsonx.ai** for
 vision OCR + categorization, **IBM Cloudant** for data, and **IBM Cloud Object
-Storage** for raw files.
+Storage** for raw files. 
 
 ## 2. Why it matters
 
@@ -21,17 +21,17 @@ ever sees their own data.
 Browser (React SPA)
    │  upload receipt (image / pdf / csv)   +  JWT auth
    ▼
-FastAPI backend  ──►  pipeline.process_file(user_id, ...)
-   │                       │
-   │                       ├─► IBM Cloud Object Storage   (raw file, key = {user_id}/{ref}/{name})
-   │                       │
-   │                       ├─► watsonx.ai
-   │                       │      • Llama-3.2-11B-Vision  → OCR image receipts
-   │                       │      • Granite-3-8B-Instruct → normalize/categorize CSV & text-PDF
-   │                       │
-   │                       └─► IBM Cloudant   (canonical expense docs, tagged with user_id)
+FastAPI backend ──► pipeline.process_file(user_id, ...)
+   │                  │
+   │                  ├─► IBM Cloud Object Storage (file, user_id/ref/name)
+   │                  │
+   │                  ├─► watsonx.ai
+   │                  │      • Llama-3.2-11B-Vision  → OCR image receipts
+   │                  │      • Granite-3-8B-Instruct → process CSV, text, PDF
+   │                  │
+   │                  └─► IBM Cloudant (expense docs, tagged with user_id)
    ▼
-Dashboard  ◄── GET /api/expenses | /api/summary | /api/chart.png   (all scoped to the caller's user_id)
+Dashboard  ◄── GET /api/expenses | /api/summary | /api/chart.png  (by user_id)
 ```
 
 Two ingest paths share one processing core:
@@ -58,6 +58,9 @@ uvicorn app:app --port 8000 --app-dir web/backend
 # open http://localhost:8000
 ```
 
+Screenshot:
+   ![Alt text](image.png)
+
 Then walk through:
 1. **Register** a new account (email + password) → JWT issued, redirected in.
 2. **Upload** a receipt image on the Upload page → watsonx.ai Llama-Vision OCRs
@@ -80,6 +83,7 @@ Then walk through:
 8. **Idempotency:** re-upload the same file → no duplicate rows (deterministic
    `sha256(user_id:source_ref:line_index)` doc id).
 
+
 ## 5. Deployment status — deploy-ready
 
 The app is **container-ready and deploy-ready**; a live IBM Code Engine URL is
@@ -92,13 +96,6 @@ not a technical gap. Everything needed to deploy is in the repo:
 - `web/README.md` — exact IBM Code Engine commands using `--build-source` (a
   remote/cloud build, so no local Docker daemon is required).
 - `.dockerignore` — keeps secrets and build junk out of the image.
-
-Suggested submission wording:
-
-> "The solution is fully implemented on an all-IBM stack (watsonx.ai, Cloudant,
-> Cloud Object Storage) and verified end-to-end locally. It is packaged as a
-> single container (`web/Dockerfile`) with documented IBM Code Engine deploy
-> steps; a live URL is pending only an account billing upgrade (Lite → PAYG)."
 
 ## 6. What's verified
 
@@ -116,23 +113,6 @@ Suggested submission wording:
 - Robust LLM JSON parsing: recovers rows even when the model output is truncated.
 - No-Docker parity test: `python web/backend/test_web_smoke.py`.
 
-## 6b. Security hardening applied
-
-Three high-signal, low-cost security fixes were implemented (full review in
-`legacy docs/security-hardening.md`):
-
-- **No forgeable auth secret** — `JWT_SECRET` is now required and validated at
-  startup (`agent/config.py`): the app refuses to run if the secret is unset,
-  under 16 chars, or a known placeholder such as `dev-insecure-change-me`.
-- **Safe CORS** — removed the invalid/insecure wildcard-origin + credentials
-  combination (`web/backend/app.py`). Since auth uses bearer tokens (not
-  cookies), `allow_credentials=False`, methods/headers are scoped, and
-  `ALLOWED_ORIGINS` defaults to deny (explicit allow-list in production).
-- **Per-user categories** — the category list is now stored per `user_id`
-  (`store.get_categories`/`set_categories`, `routes_expenses.py`), so one user
-  can no longer overwrite the shared/global category list for everyone —
-  reinforcing the multi-tenant isolation shown in the demo.
-
 ## 7. Repo map
 
 - `agent/` — shared AI core: `router`, `parsers`, `watsonx_client`, `schema`,
@@ -144,3 +124,9 @@ Three high-signal, low-cost security fixes were implemented (full review in
 - `Expense-tracker-web.md` — full phased migration plan (W0–W3).
 
 
+
+## 8. Note on model endpoints
+
+The watsonx.ai models used (Llama-3.2-11B-Vision, Granite-3-8B-Instruct) run
+against shared public endpoints on the Lite plan. Response latency reflects
+that shared capacity and would improve under a dedicated or reserved deployment.
