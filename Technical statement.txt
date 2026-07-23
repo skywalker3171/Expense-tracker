@@ -22,7 +22,9 @@ Two models via ml/v1/text/chat (temperature 0.0, capped max_new_tokens):
 llama-3-2-11b-vision-instruct for OCR, and granite-3-8b-instruct for text
 categorization and the NL query. IAM tokens are cached; output is parsed
 defensively (_extract_json recovers objects from truncated JSON) and coerced to
-the schema before persistence.
+the schema before persistence. Both models run against shared public endpoints on
+the Lite plan; response latency would improve under a dedicated or reserved
+deployment.
 
 DATA MODEL AND STORAGE
 Canonical expense docs carry a user_id and a deterministic id =
@@ -59,5 +61,5 @@ injected at runtime (IBM Code Engine --env-from-secret). Smoke tests
 (agent/test_smoke.py, web/backend/test_web_smoke.py) cover the pipeline and
 per-user isolation.
 
-STACK: Python, FastAPI, pdfplumber, pandas, pypdf, Pillow; React, Vite, Recharts;
+STACK: Python, FastAPI, pdfplumber, pandas, pypdf, Pillow; React, Vite, Tailwind CSS, Recharts;
 watsonx.ai, IBM Cloudant, IBM Cloud Object Storage; JWT auth.

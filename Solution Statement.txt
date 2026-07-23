@@ -1,57 +1,48 @@
 SOLUTION STATEMENT - AI-Powered Expense Tracker (IBM watsonx Challenge)
+Software Track
 
 THE PROBLEM
-Tracking personal and small-business spending is tedious and error-prone.
-Receipts arrive as phone photos, scanned PDFs, bank-statement exports, and CSV
-files. Turning them into clean, categorized records normally means manual typing
-into a spreadsheet. 
+Receipts arrive in incompatible formats — phone photos, scanned PDFs, bank-statement
+exports, and CSV files — and no affordable tool bridges all of them into a single
+structured, searchable record without manual data entry.
 
 THE SOLUTION
-The Expense Tracker turns any receipt - a phone photo, a scanned PDF, a
-text-based bank statement, or a CSV export - into structured, categorized,
-queryable expenses in seconds. The user drops a file into the browser and an
-all-IBM AI pipeline does the rest: it reads the document, extracts each line
-item (date, merchant, amount, currency), assigns a spending category, and stores
-the result. A dashboard shows a category pie chart, "Total spent" and "Total
-received" cards, and separate expense and deposit tables - all scoped to the
-single logged-in user.
+Drop any receipt into the browser. An all-IBM AI pipeline reads the document,
+extracts each line item (date, merchant, amount, currency), assigns a category,
+and stores the result. A React + Tailwind CSS dashboard shows a spend-by-category
+bar chart, totals, and separate expense and deposit tables — all scoped to the
+logged-in user.
 
 HOW IT WORKS FOR THE USER
 1. Register or log in (email/password, JWT-secured session).
-2. Upload a receipt image, a bank-statement PDF, or a CSV.
-3. Watch extracted, categorized rows appear immediately on the dashboard.
-4. Explore spending: pie chart by category, totals, and expense/deposit tables.
-5. Search in plain English, e.g. "groceries from July 1st to 15th" - the app
-   understands the request and returns a filtered summary and matching rows.
-6. Correct a category once and the app learns: the choice is remembered for that
-   merchant, applied to existing matching expenses, and used automatically on
-   future uploads.
+2. Upload a receipt image, bank-statement PDF, or CSV.
+3. Extracted, categorized rows appear immediately on the dashboard.
+4. Search in plain English: "groceries from July 1st to 15th" — the app returns
+   a filtered summary and matching rows.
+5. Correct a category once and the app learns: the choice is remembered for that
+   merchant and applied automatically to future uploads.
 
 WHY IT MATTERS
-There is no manual typing, no spreadsheets, and no cross-user data leakage: every
-user only ever sees their own expenses. What began as a single-inbox Gmail
-receipt agent has grown into a real multi-tenant web product, while keeping the
-original all-IBM foundation intact.
+This is a deployable SaaS product, not a proof-of-concept. Each user's data is
+fully isolated at every layer — JWT auth, per-user Cloudant selectors, and per-user
+COS namespacing. The merchant learning loop means the product improves with use:
+one correction teaches the system, so every future receipt from that merchant is
+categorized correctly without prompting.
 
 BUILT ENTIRELY ON IBM
-- watsonx.ai (Llama 3.2 Vision) reads image and scanned-PDF receipts via OCR.
-- watsonx.ai (Granite 3 Instruct) normalizes and categorizes CSV/PDF rows and
-  powers the natural-language query.
-- IBM Cloudant stores the per-user expense records.
-- IBM Cloud Object Storage keeps the original uploaded files.
-- IBM Code Engine is the target single-container deployment platform.
+- watsonx.ai (Llama 3.2 Vision) — OCR of image and scanned-PDF receipts.
+- watsonx.ai (Granite 3 Instruct) — categorization, normalization, NL query.
+- IBM Cloudant — per-user expense records.
+- IBM Cloud Object Storage — original uploaded files, namespaced per user.
+- IBM Code Engine — target single-container deployment platform.
 
-Two ingest paths - the browser upload (primary) and the retained Gmail poller
-(secondary) - share one processing core, so parsing quality is identical
-everywhere. Privacy is built in: deposit amounts are obfuscated before storage
-and display, so real income figures are never exposed.
+Privacy is built in: deposit amounts are obfuscated before storage and display.
 
 DEPLOYMENT STATUS
-The solution is fully implemented on the all-IBM stack and verified end-to-end
-locally. It is packaged as a single container (web/Dockerfile) with documented
-IBM Code Engine deploy steps; a live URL is pending only an IBM Cloud account
-billing upgrade (Lite to Pay-As-You-Go), which is a billing limitation, not a
-technical gap.
+Production-ready: a multi-stage Dockerfile builds and serves the full stack from
+a single container; IBM Code Engine deploy commands are in web/README.md with
+secrets injected at runtime. A live URL requires a Pay-As-You-Go account; all
+artefacts are in the repo and verified locally.
 
 In short: snap a photo of a receipt, and watsonx.ai turns it into an organized,
-searchable, self-learning view of your money - all on IBM Cloud.
+searchable, self-learning view of your money — all on IBM Cloud.

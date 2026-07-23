@@ -34,19 +34,22 @@ export default function Login() {
   }
 
   return (
-    <div className="auth-card">
-      <h1>{mode === "login" ? "Sign in" : "Create account"}</h1>
-      <form onSubmit={onSubmit}>
-        <label>
+    <div className="max-w-sm mx-auto mt-16 bg-sky-900 border border-sky-700 rounded-xl p-8 shadow-lg">
+      <h1 className="mt-0 mb-6 text-xl font-semibold text-white">
+        {mode === "login" ? "Sign in" : "Create account"}
+      </h1>
+      <form onSubmit={onSubmit} className="flex flex-col gap-4">
+        <label className="flex flex-col gap-1.5 text-sm text-slate-300">
           Email
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
+            className="px-3 py-2.5 bg-sky-800 border border-sky-600 rounded-lg text-sm text-white placeholder-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-400"
           />
         </label>
-        <label>
+        <label className="flex flex-col gap-1.5 text-sm text-slate-300">
           Password
           <input
             type="password"
@@ -54,21 +57,23 @@ export default function Login() {
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={6}
+            className="px-3 py-2.5 bg-sky-800 border border-sky-600 rounded-lg text-sm text-white placeholder-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-400"
           />
         </label>
-        {error && <p className="error">{error}</p>}
-        <button className="btn-primary" type="submit" disabled={busy}>
+        {error && <p className="text-red-400 text-sm m-0">{error}</p>}
+        <button
+          className="mt-1 w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-default text-white border-0 rounded-lg py-2.5 text-sm font-medium cursor-pointer transition-colors"
+          type="submit"
+          disabled={busy}
+        >
           {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Register"}
         </button>
       </form>
-      <p className="toggle">
+      <p className="mt-4 text-sm text-slate-400 text-center">
         {mode === "login" ? "No account yet?" : "Already have an account?"}{" "}
         <button
-          className="btn-link"
-          onClick={() => {
-            setError("");
-            setMode(mode === "login" ? "register" : "login");
-          }}
+          className="text-indigo-400 hover:underline bg-transparent border-0 cursor-pointer p-0 text-sm"
+          onClick={() => { setError(""); setMode(mode === "login" ? "register" : "login"); }}
         >
           {mode === "login" ? "Create one" : "Sign in"}
         </button>
